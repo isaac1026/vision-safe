@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>스마트폰 시력 보호 시스템 (재생목록 버전)</title>
+    <style>
+        /* 기본 다크 모드 스타일 설정 */
+        body {
+            background-color: #121212;
+            color: #ffffff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        h2 {
+            color: #4da6ff;
+            margin-bottom: 20px;
+        }
+
+        /* 시작 버튼 스타일 */
+        .start-btn {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            font-size: 16px;
+            font-weight: bold;
+            border-radius: 25px;
+            cursor: pointer;
+            transition: 0.3s;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 15px rgba(0, 123, 255, 0.3);
+        }
+
+        .start-btn:hover {
+            background-color: #0056b3;
+            transform: scale(1.05);
+        }
+
+        /* 메인 레이아웃: 왼쪽 웹캠, 오른쪽 영상 */
+        .container {
+            display: flex;
+            width: 100%;
+            max-width: 1100px;
+            gap: 30px;
+            justify-content: center;
+            align-items: flex-start;
+        }
+
+        /* 왼쪽 사이드바 (웹캠 및 상태 표시) */
+        .left-panel {
+            flex: 1;
+            background-color: #1e1e1e;
+            padding: 20px;
+            border-radius: 15px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+        }
+
+        #webcam-container {
+            border: 3px solid #333;
+            border-radius: 10px;
+            overflow: hidden;
+            width: 200px;
+            height: 200px;
+            margin-bottom: 20px;
+        }
+
+        #label-container div {
+            font-size: 16px;
+            margin: 8px 0;
+            padding: 5px 15px;
+            background: #2a2a2a;
+            border-radius: 5px;
+            min-width: 180px;
+            text-align: center;
+        }
+
+        /* 오른쪽 메인 화면 (유튜브 재생목록 플레이어) */
+        .right-panel {
+            flex: 2;
+            position: relative;
+            width: 100%;
+        }
+
+        .video-wrapper {
+            position: relative;
+            padding-bottom: 56.25%; /* 16:9 비율 고정 */
+            height: 0;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+            /* 부드러운 Blur 애니메이션 효과 */
+            transition: filter 0.5s ease; 
+        }
+
+        .video-wrapper iframe {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+
+        /* 위험 상태일 때 적용될 블러(Blur) 클래스 */
+        .blur-active {
+            filter: blur(25px);
+            pointer-events: none; /* 영상 및 목록 조작 불가 */
+        }
+
+        /* 화면 중앙 경고 팝업 */
+        .warning-overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(255, 0, 0, 0.85);
+            color: white;
+            padding: 20px 40px;
+            font-size: 22px;
+            font-weight: bold;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(255, 0, 0, 0.7);
+            display: none; /* 평소에는 숨김 */
+            z-index: 10;
+            text-align: center;
+            white-space: nowrap;
+            animation: blink 1s infinite alternate;
+        }
+
+        @keyframes blink {
+            from { opacity: 1; }
+            to { opacity: 0.6; }
+        }
+    </style>
+</head>
+<body>
+
+    <h2>Teachable Machine 시력 보호 시스템</h2>
+    <button class="start-btn" type="button" onclick="init()">시스템 시작하기</button>
+
+    <div class="container">
+        <div class="left-panel">
+            <div id="webcam-container"></div>
+            <div id="label-container"></div>
+        </div>
+
+        <div class="right-panel">
+            <div id="warning" class="warning-overlay">🚨 너무 가깝습니다! 눈 건강을 위해 뒤로 물러나세요!</div>
+            
+            <div id="video-box" class="video-wrapper">
+                <iframe src="https://www.youtube.com/embed/videoseries?list=PLH79W9vWWXGeFscS_I_Z-5hN7L8Ew8Uox&mute=1" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+    
+    <script type="text/javascript">
+        // 나의 티처블 머신 모델 주소 유지 (현재는 샘플 주소)
+        const URL = "https://teachablemachine.withgoogle.com/models/I1CaiHGQm/";
+
+        let model, webcam, labelContainer, maxPredictions;
+        let videoBox, warningOverlay;
+
+        async function init() {
+            videoBox = document.getElementById("video-box");
+            warningOverlay = document.getElementById("warning");
+
+            const modelURL = URL + "model.json";
+            const metadataURL = URL + "metadata.json";
+
+            model = await tmImage.load(modelURL, metadataURL);
+            maxPredictions = model.getTotalClasses();
+
+            const flip = true; 
+            webcam = new tmImage.Webcam(200, 200, flip); 
+            await webcam.setup(); 
+            await webcam.play();
+            window.requestAnimationFrame(loop);
+
+            document.getElementById("webcam-container").appendChild(webcam.canvas);
+            labelContainer = document.getElementById("label-container");
+            labelContainer.innerHTML = ""; 
+            for (let i = 0; i < maxPredictions; i++) { 
+                labelContainer.appendChild(document.createElement("div"));
+            }
+        }
+
+        async function loop() {
+            webcam.update(); 
+            await predict();
+            window.requestAnimationFrame(loop);
+        }
+
+        async function predict() {
+            const prediction = await model.predict(webcam.canvas);
+            
+            let tooCloseProbability = 0;
+
+            for (let i = 0; i < maxPredictions; i++) {
+                const className = prediction[i].className;
+                const probability = prediction[i].probability;
+
+                // 화면에 확률 실시간 표시
+                labelContainer.childNodes[i].innerHTML = className + ": " + probability.toFixed(2);
+
+                // 티처블 머신의 클래스명이 'Too_Close' 인지 체크
+                if (className === "Too_Close") {
+                    tooCloseProbability = probability;
+                }
+            }
+
+            // Too_Close의 확률이 85%(0.85) 이상일 때 플레이리스트 화면 블러 처리 및 조작 잠금
+            if (tooCloseProbability >= 0.85) {
+                videoBox.classList.add("blur-active");       
+                warningOverlay.style.display = "block";       
+            } else {
+                videoBox.classList.remove("blur-active");    
+                warningOverlay.style.display = "none";        
+            }
+        }
+    </script>
+</body>
+</html>
